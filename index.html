@@ -2,132 +2,112 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Multi-Agent Ontoverse: Commander + Knowledge Graph + Day/Night</title>
+  <title>Hyper Ontoverse: Multi-Agent RL with Commander, Hierarchical Synergy, Knowledge Graph</title>
   <style>
     body {
-      margin: 0;
-      padding: 0;
-      background: #1a1a1a;
-      color: #fff;
+      margin: 0; padding: 0;
+      background: #1a1a1a; color: #fff;
       font-family: Arial, sans-serif;
       overflow: hidden;
     }
     #controls {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 10px;
-      border-radius: 6px;
+      position: absolute; top: 10px; left: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px; border-radius: 6px;
       z-index: 10;
     }
-    #controls label,
-    #controls button {
+    #controls label, #controls button {
       display: block;
       margin: 5px 0;
     }
     #performance {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
+      position: absolute; bottom:10px; right:10px;
       background: rgba(0,0,0,0.7);
-      padding: 10px;
-      border-radius: 6px;
-      z-index: 10;
+      padding: 10px; border-radius: 6px; 
+      z-index:10;
     }
-    #performance p {
-      margin: 6px 0;
-      font-size: 0.9em;
-    }
+    #performance p { margin:5px 0; font-size:0.9em; }
     #eventLog {
-      position: absolute;
-      top: 200px;
-      left: 10px;
+      position: absolute; top:200px; left:10px;
+      width: 270px; max-height:280px; overflow-y:auto;
       background: rgba(0,0,0,0.7);
-      width: 260px;
-      max-height: 250px;
-      overflow-y: auto;
-      border-radius: 6px;
-      padding: 10px;
-      z-index: 10;
+      border-radius: 6px; padding:10px;
+      z-index:10;
     }
-    #eventLog h3 {
-      margin: 0 0 5px 0;
-      font-size: 1.0em;
-    }
-    #eventLog ul {
-      list-style-type: none;
-      padding: 0;
-      margin: 0;
-      font-size: 0.85em;
-    }
-    #eventLog li {
-      margin-bottom: 4px;
-    }
+    #eventLog h3 { margin:0 0 5px; font-size:1em; }
+    #eventLog ul { list-style-type:none; margin:0; padding:0; font-size:0.85em; }
+    #eventLog li { margin-bottom:4px; }
   </style>
 </head>
 <body>
 <div id="controls">
   <label>Agent Speed:</label>
-  <input type="range" id="speedSlider" min="1" max="10" value="5" />
+  <input type="range" id="speedSlider" min="1" max="10" value="5">
   
   <label>Threat Aggressiveness:</label>
-  <input type="range" id="threatSlider" min="1" max="5" value="3" />
+  <input type="range" id="threatSlider" min="1" max="5" value="3">
 
   <button onclick="resetSimulation()">Reset Simulation</button>
-  <button onclick="createRandomTask()">Spawn Simple Task</button>
+  <button onclick="createRandomTask()">Spawn Single-step Task</button>
 </div>
-
 <div id="performance">
   <p>FPS: <span id="fps">0</span></p>
   <p>Step Time: <span id="stepTime">0</span> ms</p>
   <p>Commander Step: <span id="commanderStep">0</span></p>
   <p>Time of Day: <span id="timeOfDay">0</span> hr</p>
 </div>
-
 <div id="eventLog">
   <h3>Event Log</h3>
   <ul id="eventList"></ul>
 </div>
-
 <canvas id="canvas"></canvas>
 
-<!-- TensorFlow.js from CDN -->
+<!-- TF.js from CDN -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-
 <script>
-/***************************************************************
-  Multi-Agent RL with Commander, Knowledge Graph, Day/Night
-  - Agents: Dueling DQN (Value + Advantage, skipping "mean advantage" step)
-  - Commander: separate DQN
-  - Knowledge Graph: small adjacency
-  - Synergy tasks for multi-agent
-  - Day/Night cycle
-***************************************************************/
+/***********************************************************
+   Memory snippet for GitHub Title & Description
+************************************************************/
+const memory = [];
+const githubTitle = "Multi-Agent Ontoverse RL Environment (Commander + Dueling DQN + Day/Night + Hierarchical Synergy)";
+const githubDescription = `
+A greatly enhanced browser-based multi-agent environment featuring multi-step synergy tasks, 
+hierarchical synergy, knowledge-graph-based agent skill matching, day/night cycles, and a 
+commander RL agent. Runs entirely in TensorFlow.js, using Dueling DQN for agents and the 
+commander, and draws inspiration from 'Ontoverse' style multi-domain synergy.
+`;
+memory.push({title: githubTitle, description: githubDescription});
+console.log("Memory snippet =>", memory[0]);
 
-/*********** Canvas Setup *************/
+/***********************************************************
+   Canvas Setup
+************************************************************/
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-canvas.width  = window.innerWidth;
-canvas.height = window.innerHeight;
-window.addEventListener("resize", () => {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
+canvas.width = window.innerWidth;
+canvas.height= window.innerHeight;
+window.addEventListener("resize", ()=>{
+  canvas.width= window.innerWidth;
+  canvas.height= window.innerHeight;
 });
 
-/********** Global Settings **********/
+/***********************************************************
+   Global Settings
+************************************************************/
 const settings = {
   agent: {
     count: 10,
     maxSpeed: 5,
-    maxHealth: 120,
+    maxHealth: 140,
     memorySize: 300,
     batchSize: 32,
     gamma: 0.99,
     epsilon: 1.0,
     epsilonMin: 0.05,
     epsilonDecay: 0.995,
-    lr: 0.001
+    lr: 0.001,
+    // each agent has a "topicSkill" vector referencing knowledgeGraph nodes
+    skillCount: 3, // same as knowledgeGraph nodes
   },
   threat: {
     count: 5,
@@ -138,180 +118,208 @@ const settings = {
     count: 10,
   },
   tasks: {
-    count: 3,
-    synergyRequired: 2,  // how many agents needed simultaneously
-    synergyReward: 40,
-    normalReward: 20
+    count: 4, // initial
+    synergyRequired: 2,
+    synergyReward: 40, 
+    normalReward: 20,
+    multiStep: true  // enable multi-step tasks
   },
   dayNight: {
     enabled: true,
-    timeRate: 0.02 // how many "hours" per frame
+    timeRate: 0.02 
   },
   knowledgeGraph: {
-    // minimal adjacency: each "topic" can have edges
+    // minimal adjacency for 3 topics
     nodes: ["healingFood", "dangerThreat", "synergyTask"],
     edges: [
-      { source: "healingFood",  target: "dangerThreat" },
-      { source: "synergyTask",  target: "healingFood" },
+      {source:"healingFood", target:"dangerThreat"},
+      {source:"synergyTask", target:"healingFood"}
     ]
   },
-  eventLogSize: 100
+  eventLogSize: 130
 };
 
-/********** Entity Classes ************/
+/***********************************************************
+   Entities
+************************************************************/
 class Entity {
-  constructor(x, y, size, color) {
-    this.x = x; 
-    this.y = y;
-    this.size = size;
-    this.color = color;
-    this.alive = true;
+  constructor(x,y,size,color){
+    this.x=x; this.y=y; this.size=size; this.color=color;
+    this.alive= true;
   }
-  draw() {
-    ctx.fillStyle = this.color;
+  draw(){
+    ctx.fillStyle= this.color;
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, 2*Math.PI);
+    ctx.arc(this.x,this.y, this.size,0, 2*Math.PI);
     ctx.fill();
   }
 }
 
 class Agent extends Entity {
-  constructor(x, y) {
-    super(x, y, 6, "blue");
-    this.health = settings.agent.maxHealth;
-    this.speed  = Math.random()*(settings.agent.maxSpeed) + 1;
-
-    // DQN
-    this.brain = buildDuelingDQN( getAgentInputSize(), 4 /*4 moves*/ );
-    this.targetBrain = buildDuelingDQN( getAgentInputSize(), 4 );
+  constructor(x,y){
+    super(x,y,6,"blue");
+    this.health= settings.agent.maxHealth;
+    this.speed= Math.random()* settings.agent.maxSpeed +1;
+    // Build Dueling DQN
+    this.brain= buildDuelingDQN(getAgentInputSize(),4);
+    this.targetBrain= buildDuelingDQN(getAgentInputSize(),4);
     this.targetBrain.setWeights( this.brain.getWeights() );
 
-    this.experiences = [];
-    this.epsilon = settings.agent.epsilon;
+    this.experiences= [];
+    this.epsilon= settings.agent.epsilon;
+
+    // agent skill vector (3 elements, 0..1)
+    this.topicSkills= [
+      Math.random(), // skill for "healingFood"
+      Math.random(), // skill for "dangerThreat"
+      Math.random()  // skill for "synergyTask"
+    ];
   }
 
-  step(agents, threats, foods, tasks, timeOfDay) {
-    let state = this.observe(agents, threats, foods, tasks, timeOfDay);
-
-    // eps-greedy
+  step(agents, threats, foods, tasks, timeOfDay){
+    let state= this.observe(agents, threats, foods, tasks, timeOfDay);
     let action;
-    if(Math.random() < this.epsilon) {
-      action = Math.floor(Math.random()*4);
+    if(Math.random()< this.epsilon){
+      action= Math.floor(Math.random()*4);
     } else {
-      const stTensor = tf.tensor2d([state]);
-      const qVals = this.brain.predict(stTensor);
-      const arr = qVals.dataSync();
-      qVals.dispose(); 
-      stTensor.dispose();
-      action = argmax(arr);
+      let stT= tf.tensor2d([state]);
+      let qVals= this.brain.predict(stT);
+      let arr= qVals.dataSync();
+      qVals.dispose(); stT.dispose();
+      action= argmax(arr);
     }
-
-    // apply action
     let dx=0, dy=0;
     switch(action){
       case 0: dy=-this.speed; break; // up
-      case 1: dy=this.speed;  break; // down
+      case 1: dy= this.speed; break; // down
       case 2: dx=-this.speed; break; // left
-      case 3: dx=this.speed;  break; // right
+      case 3: dx= this.speed; break; // right
       default: break;
     }
-    this.x += dx; 
-    this.y += dy;
+    this.x+= dx; 
+    this.y+= dy;
     keepInBounds(this);
 
-    // reward
-    let reward = this.interact(threats, foods, tasks, timeOfDay);
+    let reward= this.interact(threats, foods, tasks, timeOfDay);
+    let nextState= this.observe(agents, threats, foods, tasks, timeOfDay);
 
-    // next
-    let nextState = this.observe(agents, threats, foods, tasks, timeOfDay);
-
-    this.experiences.push({ state, action, reward, nextState, done:!this.alive });
+    this.experiences.push({state,action,reward, nextState, done:!this.alive});
     if(this.experiences.length> settings.agent.batchSize*2){
       this.learn();
     }
-    // epsilon decay
     if(this.epsilon> settings.agent.epsilonMin){
       this.epsilon*= settings.agent.epsilonDecay;
     }
   }
 
-  observe(agents, threats, foods, tasks, timeOfDay) {
-    // 8 inputs: threatX, threatY, foodX,foodY, taskX,taskY, health, isNight
-    let nt = findNearest(this, threats);
-    let nf = findNearest(this, foods);
-    let ta = findNearest(this, tasks);
+  observe(agents, threats, foods, tasks, timeOfDay){
+    // 8 + skillCount = 8 + 3 = 11 inputs
+    // but let's do 8 for environment + sumOfSkill
+    // or let's do 8 environment + 3 skill => total 11
+    let nt= findNearest(this, threats);
+    let nf= findNearest(this, foods);
+    let ta= findNearest(this, tasks);
 
-    let threatX=0, threatY=0,
-        foodX=0,   foodY=0,
-        taskX=0,   taskY=0;
-    if(nt) { threatX=(nt.x - this.x)/canvas.width; 
-             threatY=(nt.y - this.y)/canvas.height; }
-    if(nf) { foodX=(nf.x - this.x)/canvas.width;  
-             foodY=(nf.y - this.y)/canvas.height;  }
-    if(ta) { taskX=(ta.x - this.x)/canvas.width;  
-             taskY=(ta.y - this.y)/canvas.height; }
+    let threatX=0, threatY=0, foodX=0, foodY=0, taskX=0, taskY=0;
+    if(nt){ threatX=(nt.x-this.x)/canvas.width; threatY=(nt.y-this.y)/canvas.height; }
+    if(nf){ foodX=(nf.x-this.x)/canvas.width;  foodY=(nf.y-this.y)/canvas.height; }
+    if(ta){ taskX=(ta.x-this.x)/canvas.width;  taskY=(ta.y-this.y)/canvas.height; }
 
-    let night = (timeOfDay>18|| timeOfDay<6)?1:0;
-    let normHealth = this.health/settings.agent.maxHealth;
+    let night= (timeOfDay>18|| timeOfDay<6)?1:0;
+    let normHealth= this.health / settings.agent.maxHealth;
+
+    // incorporate skill vector fully
     return [
       threatX, threatY,
       foodX,   foodY,
       taskX,   taskY,
       normHealth,
-      night
+      night,
+      this.topicSkills[0],
+      this.topicSkills[1],
+      this.topicSkills[2]
     ];
   }
 
-  interact(threats, foods, tasks, timeOfDay) {
-    let r=-0.1; 
-    for(let i=threats.length-1; i>=0; i--){
+  interact(threats, foods, tasks, timeOfDay){
+    let r= -0.1;
+    for(let i= threats.length-1;i>=0;i--){
       let t= threats[i];
-      if(dist(this,t)< this.size+t.size){
-        this.health-=25; r-=10;
+      if(dist(this,t)< this.size+ t.size){
+        this.health-=25;
+        r-=10;
         if(this.health<=0){
-          this.alive=false; 
+          this.alive=false;
           logEvent("Agent died from threat!");
         }
       }
     }
-    for(let i= foods.length-1; i>=0; i--){
+    for(let i= foods.length-1;i>=0;i--){
       let f= foods[i];
-      if(dist(this,f)< this.size+f.size){
-        this.health = Math.min(settings.agent.maxHealth, this.health+20);
-        r+=5; 
+      if(dist(this,f)< this.size+ f.size){
+        // skill synergy with "healingFood" => add small bonus
+        let skill= this.topicSkills[0];
+        let bonus= skill*2; 
+        this.health= Math.min(settings.agent.maxHealth, this.health+ 20 + bonus);
+        r+= 5 + (bonus*0.2);
         foods.splice(i,1);
-        logEvent("Agent ate food +5");
+        logEvent(`Agent ate food (+${5 + (bonus*0.2).toFixed(1)})`);
       }
     }
-    for(let i= tasks.length-1; i>=0; i--){
+    // synergy tasks
+    for(let i= tasks.length-1;i>=0;i--){
       let tk= tasks[i];
-      if(!tk.synergyMet) tk.synergyMet=0;
-      if(dist(this, tk)< this.size+tk.size){
-        tk.synergyMet++;
-        if(tk.synergyMet>= settings.tasks.synergyRequired){
-          let dayBonus= (timeOfDay>=6 && timeOfDay<=18)? 5: 0;
-          let rew= settings.tasks.synergyReward+ dayBonus;
-          r+= rew;
-          logEvent(`Agent synergy completed a task +${rew}`);
-          tasks.splice(i,1);
+      // multi-step logic
+      if(!tk.stepCount) tk.stepCount= tk.steps?tk.steps:1; 
+      // if doesn't exist, generate steps if multiStep => random 1..3 steps
+      if(!tk.hasOwnProperty("steps") && settings.tasks.multiStep) {
+        tk.steps= 1+ Math.floor(Math.random()*3);
+        tk.stepCount= tk.steps;
+        tk.synergyNeeded= settings.tasks.synergyRequired;
+        // each step might require synergy skill or knowledge skill
+        tk.topicIndex= Math.floor(Math.random()*3); // 0..2
+      }
+      let distVal= dist(this,tk);
+      if(distVal< (this.size+tk.size)) {
+        if(!tk.synergyCurrent) tk.synergyCurrent= new Set();
+        tk.synergyCurrent.add(this); // track agent presence
+        if(tk.synergyCurrent.size >= tk.synergyNeeded) {
+          // do "progress" on the step
+          // skill synergy => if agent has skill in that topic
+          let skill= this.topicSkills[ tk.topicIndex ];
+          let skillBoost= skill*5; 
+          // finishing a step
+          tk.stepCount--;
+          logEvent(`Task step done (skillBoost=${skillBoost.toFixed(1)})`);
+          let stepRew= 10 + skillBoost;
+          r+= stepRew;
+          if(tk.stepCount<=0){
+            let dayBonus= (timeOfDay>=6 && timeOfDay<=18)? 5: 0;
+            r+= (settings.tasks.synergyReward + dayBonus);
+            logEvent(`Agent final step => synergy completed all steps +${(settings.tasks.synergyReward + dayBonus)}`);
+            tasks.splice(i,1);
+          } else {
+            // still steps remain
+            // reset synergy current for next step
+            tk.synergyCurrent= new Set();
+          }
         }
       }
     }
-    // small health drain
     this.health-= 0.05;
     if(this.health<=0){
-      this.alive=false;
+      this.alive=false; 
       logEvent("Agent died from health depletion.");
       r-=5;
     }
     return r;
   }
 
-  learn() {
+  learn(){
     if(this.experiences.length< settings.agent.batchSize) return;
     let batch=[];
     for(let i=0; i< settings.agent.batchSize; i++){
-      let idx= Math.floor(Math.random()*this.experiences.length);
+      let idx= Math.floor(Math.random()* this.experiences.length);
       batch.push(this.experiences[idx]);
     }
     const states=[], nextStates=[], actions=[], rewards=[], dones=[];
@@ -322,46 +330,43 @@ class Agent extends Entity {
       rewards.push(ex.reward);
       dones.push(ex.done?1:0);
     }
-    const sT= tf.tensor2d(states);
-    const nsT= tf.tensor2d(nextStates);
+    let sT= tf.tensor2d(states);
+    let nsT= tf.tensor2d(nextStates);
 
     let qNextLocal= this.brain.predict(nsT);
     let qNextTarget= this.targetBrain.predict(nsT);
 
-    let qNextLocalArr= qNextLocal.arraySync();
-    let qNextTargetArr= qNextTarget.arraySync();
+    let qNL= qNextLocal.arraySync();
+    let qNT= qNextTarget.arraySync();
 
     let currPred= this.brain.predict(sT);
     let currArr= currPred.arraySync();
 
-    for(let i=0; i< batch.length; i++){
-      let bestA= argmax(qNextLocalArr[i]);
-      let target= dones[i]? rewards[i] : (rewards[i]+ settings.agent.gamma* qNextTargetArr[i][bestA]);
-      currArr[i][ actions[i]] = target;
+    for(let i=0;i<batch.length;i++){
+      let bestA= argmax(qNL[i]);
+      let target= dones[i]? rewards[i] : (rewards[i]+ settings.agent.gamma * qNT[i][bestA]);
+      currArr[i][actions[i]]= target;
     }
-
-    let updatedT= tf.tensor2d(currArr, [batch.length, 4]);
-    this.brain.fit(sT, updatedT, {epochs:1, verbose:0}).then(()=>{
+    let upd= tf.tensor2d(currArr, [batch.length,4]);
+    this.brain.fit(sT, upd, {epochs:1, verbose:0}).then(()=>{
       sT.dispose(); nsT.dispose();
       qNextLocal.dispose(); qNextTarget.dispose();
-      currPred.dispose(); updatedT.dispose();
+      currPred.dispose(); upd.dispose();
     });
   }
 
-  updateTarget() {
+  updateTarget(){
     this.targetBrain.setWeights( this.brain.getWeights() );
   }
 }
 
 class Threat extends Entity {
-  constructor(x,y) {
+  constructor(x,y){
     super(x,y,8,"red");
   }
-  move(timeOfDay) {
-    let sp= settings.threat.baseSpeed* settings.threat.aggressiveness;
-    if(timeOfDay>18||timeOfDay<6){
-      sp*=1.2; 
-    }
+  move(timeOfDay){
+    let sp= settings.threat.baseSpeed * settings.threat.aggressiveness;
+    if(timeOfDay>18|| timeOfDay<6) sp*=1.2;
     this.x+= (Math.random()-0.5)* sp;
     this.y+= (Math.random()-0.5)* sp;
     keepInBounds(this);
@@ -377,12 +382,15 @@ class Food extends Entity {
 class Task extends Entity {
   constructor(x,y){
     super(x,y,6,"yellow");
+    // steps for multi-step synergy can be assigned later
   }
 }
 
-/********** Commander *************/
+/***********************************************************
+   Commander Agent
+************************************************************/
 class CommanderAgent {
-  constructor() {
+  constructor(){
     this.stepCount=0;
     this.epsilon=1.0;
     this.exp=[];
@@ -391,10 +399,9 @@ class CommanderAgent {
     this.targetModel.setWeights( this.model.getWeights() );
   }
 
-  step(agents, threats, foods, tasks, timeOfDay) {
+  step(agents, threats, foods, tasks, timeOfDay){
     this.stepCount++;
-
-    // global state
+    // global state: #agents, #tasks, synergy, timeOfDay, threatAggro
     let st= [
       agents.length/30,
       tasks.length/10,
@@ -402,25 +409,23 @@ class CommanderAgent {
       timeOfDay/24,
       settings.threat.aggressiveness/5
     ];
-
     let action;
     if(Math.random()< this.epsilon){
-      action= Math.floor(Math.random()*4);
+      action= Math.floor(Math.random()*5); // let's do 5 actions now
     } else {
-      let inp= tf.tensor2d([st]);
-      let out= this.model.predict(inp);
+      let stT= tf.tensor2d([st]);
+      let out= this.model.predict(stT);
       let arr= out.dataSync();
-      out.dispose(); inp.dispose();
+      out.dispose(); stT.dispose();
       action= argmax(arr);
     }
-
     let reward=0;
     switch(action){
       case 0:
-        // spawn synergy tasks
-        if(Math.random()<0.2){
-          createRandomTask(true);
-          reward+=1;
+        // spawn synergy tasks with random synergy steps
+        if(Math.random()<0.25){
+          spawnMultiStepTask();
+          reward+=2;
         }
         break;
       case 1:
@@ -440,12 +445,28 @@ class CommanderAgent {
         }
         break;
       case 3:
-        // update agent targets
+        // update agent target
         for(const ag of agents){
           ag.updateTarget();
         }
         reward+=3;
         logEvent("Commander forced target update on all agents!");
+        break;
+      case 4:
+        // spawn random extra threat or food
+        if(Math.random()<0.5){
+          let x= Math.random()*canvas.width;
+          let y= Math.random()*canvas.height;
+          threats.push(new Threat(x,y));
+          logEvent("Commander spawned an extra threat!");
+          reward-=2;
+        } else {
+          let x= Math.random()*canvas.width;
+          let y= Math.random()*canvas.height;
+          foods.push(new Food(x,y));
+          reward+=1;
+          logEvent("Commander spawned extra food!");
+        }
         break;
       default: break;
     }
@@ -459,16 +480,12 @@ class CommanderAgent {
     ];
     let done=false;
     this.exp.push({st, action, reward, nextSt, done});
-    if(this.exp.length> 200){
-      this.learn();
-    }
-    if(this.epsilon> 0.05){
-      this.epsilon*=0.999;
-    }
+    if(this.exp.length> 200) this.learn();
+    if(this.epsilon> 0.05) this.epsilon*= 0.999;
   }
 
-  learn() {
-    if(this.exp.length<64) return;
+  learn(){
+    if(this.exp.length<64)return;
     let batch=[];
     for(let i=0;i<64;i++){
       let idx= Math.floor(Math.random()*this.exp.length);
@@ -482,38 +499,121 @@ class CommanderAgent {
       nextStates.push(ex.nextSt);
       dones.push(ex.done?1:0);
     }
-    const sT= tf.tensor2d(states);
-    const nsT=tf.tensor2d(nextStates);
-
+    let sT= tf.tensor2d(states);
+    let nsT= tf.tensor2d(nextStates);
     let qNextLocal= this.model.predict(nsT);
     let qNextTarget= this.targetModel.predict(nsT);
-    let qNextLocalArr= qNextLocal.arraySync();
-    let qNextTargetArr= qNextTarget.arraySync();
+
+    let localArr= qNextLocal.arraySync();
+    let targArr= qNextTarget.arraySync();
 
     let currPred= this.model.predict(sT);
     let currArr= currPred.arraySync();
 
     for(let i=0;i< batch.length;i++){
-      let bestA= argmax(qNextLocalArr[i]);
-      let target= dones[i]? rewards[i] : (rewards[i]+ 0.98* qNextTargetArr[i][bestA]);
-      currArr[i][actions[i]]= target;
+      let bestA= argmax(localArr[i]);
+      let target= dones[i]? rewards[i] : (rewards[i]+ 0.98* targArr[i][bestA]);
+      currArr[i][ actions[i]] = target;
     }
-
-    let updated= tf.tensor2d(currArr,[batch.length,4]);
+    let updated= tf.tensor2d(currArr,[batch.length,5]); // we said now 5 actions
     this.model.fit(sT, updated, {epochs:1, verbose:0}).then(()=>{
       sT.dispose(); nsT.dispose();
       qNextLocal.dispose(); qNextTarget.dispose();
       currPred.dispose(); updated.dispose();
     });
-
-    // occasionally update target
-    if(Math.random()< 0.03){
+    if(Math.random()<0.03){
       this.targetModel.setWeights(this.model.getWeights());
     }
   }
 }
 
-/****************** Globals + Main Loop ******************/
+/***********************************************************
+   Build Commander Net
+************************************************************/
+function buildCommanderDQN(){
+  // input shape 5, output shape 5
+  const inp= tf.input({shape:[5]});
+  let x= tf.layers.dense({units:32, activation:'relu'}).apply(inp);
+  x= tf.layers.dense({units:16, activation:'relu'}).apply(x);
+  let out= tf.layers.dense({units:5, activation:'linear'}).apply(x);
+
+  let model= tf.model({inputs:inp, outputs: out});
+  model.compile({optimizer: tf.train.adam(0.0005), loss:'meanSquaredError'});
+  return model;
+}
+
+/***********************************************************
+   Utility
+************************************************************/
+function logEvent(msg){
+  const ul= document.getElementById("eventList");
+  const li= document.createElement("li");
+  li.textContent= `${new Date().toLocaleTimeString()}: ${msg}`;
+  ul.appendChild(li);
+  if(ul.children.length> settings.eventLogSize){
+    ul.removeChild(ul.firstChild);
+  }
+  ul.scrollTop= ul.scrollHeight;
+}
+
+function argmax(arr){
+  let max=-Infinity, idx=0;
+  for(let i=0; i<arr.length; i++){
+    if(arr[i]> max){
+      max= arr[i]; idx=i;
+    }
+  }
+  return idx;
+}
+
+function dist(a,b){
+  let dx= a.x-b.x; let dy= a.y-b.y;
+  return Math.hypot(dx,dy);
+}
+function keepInBounds(e){
+  if(e.x< e.size)e.x=e.size;
+  if(e.x> canvas.width- e.size)e.x=canvas.width- e.size;
+  if(e.y< e.size)e.y=e.size;
+  if(e.y> canvas.height- e.size)e.y=canvas.height- e.size;
+}
+function findNearest(ref, arr){
+  if(arr.length<1)return null;
+  let minD= Infinity, near= null;
+  for(const x of arr){
+    let dd= dist(ref,x);
+    if(dd< minD){
+      minD= dd; near= x;
+    }
+  }
+  return near;
+}
+function getAgentInputSize(){
+  // we said 11 => threatX, threatY,foodX,foodY,taskX,taskY,health,nigh + 3 skill
+  // let's do 10 for the agent, if we want all skill. Or better 11 
+  // We'll do 10 => we skip 1 skill?
+  // Actually let's do 11 to incorporate all 3 skill elements
+  return 8 + settings.agent.skillCount; // 8 + 3 = 11
+}
+
+// Basic Dueling DQN for Agents
+function buildDuelingDQN(inputSize, outputSize){
+  const input= tf.input({shape:[inputSize]});
+  let x= tf.layers.dense({units:64, activation:'relu'}).apply(input);
+  x= tf.layers.dense({units:32, activation:'relu'}).apply(x);
+
+  let value= tf.layers.dense({units:1, activation:'linear'}).apply(x);
+  let advantage= tf.layers.dense({units:outputSize, activation:'linear'}).apply(x);
+  // Q = value + advantage
+  let qVals= tf.layers.add().apply([value, advantage]);
+
+  let model= tf.model({inputs: input, outputs: qVals});
+  model.compile({optimizer: tf.train.adam(settings.agent.lr), loss:'meanSquaredError'});
+  return model;
+}
+
+/***********************************************************
+   Main Simulation
+************************************************************/
 let agents= [];
 let threats= [];
 let foods= [];
@@ -522,25 +622,24 @@ let commander;
 
 let lastTimestamp= performance.now();
 let fps=0, stepTime=0;
-let timeOfDay=8; // start morning
+let timeOfDay= 8;
 const dayLength=24;
 
-function initializeSimulation() {
-  agents=[];
+function initializeSimulation(){
+  agents= [];
   threats=[];
   foods=[];
   tasks=[];
   commander= new CommanderAgent();
 
-  // spawn
   for(let i=0; i< settings.agent.count; i++){
-    let x= Math.random()*canvas.width;
-    let y= Math.random()*canvas.height;
+    let x= Math.random()* canvas.width;
+    let y= Math.random()* canvas.height;
     agents.push(new Agent(x,y));
   }
   for(let i=0; i< settings.threat.count; i++){
-    let x= Math.random()*canvas.width;
-    let y= Math.random()*canvas.height;
+    let x= Math.random()* canvas.width;
+    let y= Math.random()* canvas.height;
     threats.push(new Threat(x,y));
   }
   for(let i=0; i< settings.food.count; i++){
@@ -549,25 +648,32 @@ function initializeSimulation() {
     foods.push(new Food(x,y));
   }
   for(let i=0; i< settings.tasks.count; i++){
-    let x= Math.random()*canvas.width;
-    let y= Math.random()*canvas.height;
-    tasks.push(new Task(x,y));
+    spawnMultiStepTask();
   }
-  logEvent("Environment initialized with synergy tasks + day/night + knowledge graph.");
+  logEvent("Hyper environment initialized (hierarchical synergy, skill-based).");
 }
 
-function createRandomTask(synergy=false) {
+function createRandomTask(){
   let x= Math.random()* canvas.width;
   let y= Math.random()* canvas.height;
   tasks.push(new Task(x,y));
-  if(synergy){
-    logEvent("Commander spawned synergy task!");
-  } else {
-    logEvent("Spawned normal task by user.");
-  }
+  logEvent("Spawned single-step task by user.");
 }
 
-function resetSimulation() {
+function spawnMultiStepTask(){
+  // synergy tasks with multi steps
+  let x= Math.random()* canvas.width;
+  let y= Math.random()* canvas.height;
+  let tk= new Task(x,y);
+  tk.steps= 1+ Math.floor(Math.random()*3); 
+  tk.stepCount= tk.steps;
+  tk.synergyNeeded= settings.tasks.synergyRequired;
+  tk.topicIndex= Math.floor(Math.random()*3);
+  tasks.push(tk);
+  logEvent(`Commander synergy task => steps=${tk.steps}, synergyNeeded=${tk.synergyNeeded}`);
+}
+
+function resetSimulation(){
   initializeSimulation();
   logEvent("Simulation reset!");
 }
@@ -578,22 +684,20 @@ function updateSimulation(timestamp){
   fps= (1000/delta).toFixed(1);
   stepTime= delta.toFixed(1);
 
-  // dayNight increment
   timeOfDay+= settings.dayNight.timeRate;
-  if(timeOfDay>dayLength) timeOfDay-= dayLength;
+  if(timeOfDay> dayLength) timeOfDay-= dayLength;
 
-  // clear
   ctx.clearRect(0,0,canvas.width, canvas.height);
 
-  // shading
+  // dayNight shading
   ctx.save();
   let nightFactor=0;
-  if(timeOfDay>18) {
+  if(timeOfDay>18){
     nightFactor= (timeOfDay-18)/6;
   } else if(timeOfDay<6){
     nightFactor= (6-timeOfDay)/6;
   }
-  let alpha= 0.6*nightFactor;
+  let alpha= 0.6* nightFactor;
   ctx.fillStyle= `rgba(0,0,0,${alpha})`;
   ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.restore();
@@ -614,7 +718,7 @@ function updateSimulation(timestamp){
     ag.draw();
   }
   // foods
-  for(const f of foods){
+  for(const f of foods) {
     f.draw();
   }
   // tasks
@@ -633,7 +737,9 @@ function updateSimulation(timestamp){
   requestAnimationFrame(updateSimulation);
 }
 
-/********** UI hooking **********/
+/*********************************************************
+   UI hooking
+*********************************************************/
 document.getElementById("speedSlider").addEventListener("input", e=>{
   let val= parseFloat(e.target.value);
   settings.agent.maxSpeed= val;
@@ -645,96 +751,19 @@ document.getElementById("threatSlider").addEventListener("input", e=>{
   logEvent("Updated threat aggressiveness => "+val);
 });
 
-/********** Utility **********/
-function logEvent(msg){
-  const ul= document.getElementById("eventList");
-  const li= document.createElement("li");
-  li.textContent= `${new Date().toLocaleTimeString()}: ${msg}`;
-  ul.appendChild(li);
-  if(ul.children.length> settings.eventLogSize){
-    ul.removeChild(ul.firstChild);
-  }
-  ul.scrollTop= ul.scrollHeight;
-}
-function argmax(arr){
-  let max=-Infinity, idx=0;
-  for(let i=0; i<arr.length;i++){
-    if(arr[i]>max){ max=arr[i]; idx=i;}
-  }
-  return idx;
-}
-function dist(a,b){
-  let dx=a.x-b.x; let dy=a.y-b.y;
-  return Math.hypot(dx,dy);
-}
-function keepInBounds(e){
-  if(e.x< e.size) e.x= e.size;
-  if(e.x> canvas.width- e.size) e.x= canvas.width- e.size;
-  if(e.y< e.size) e.y= e.size;
-  if(e.y> canvas.height- e.size) e.y= canvas.height- e.size;
-}
-function findNearest(ref, arr){
-  if(arr.length<1) return null;
-  let mind= Infinity, near=null;
-  for(const x of arr){
-    let d= dist(ref,x);
-    if(d<mind){ mind=d; near=x;}
-  }
-  return near;
-}
-function getAgentInputSize(){
-  // 8 inputs
-  return 8;
-}
-
-// Basic Dueling DQN: Value + Advantage (no subtract mean)
-function buildDuelingDQN(inputSize, outputSize){
-  const input = tf.input({shape:[inputSize]});
-  let x= tf.layers.dense({units:64, activation:'relu'}).apply(input);
-  x= tf.layers.dense({units:32, activation:'relu'}).apply(x);
-
-  // Value head
-  let value = tf.layers.dense({units:1, activation:'linear'}).apply(x);
-  // Advantage head
-  let advantage= tf.layers.dense({units:outputSize, activation:'linear'}).apply(x);
-
-  // Combine: Q = value + advantage
-  let qVals= tf.layers.add().apply([ value, advantage ]);
-
-  let model= tf.model({inputs: input, outputs: qVals});
-  model.compile({optimizer: tf.train.adam(settings.agent.lr), loss:'meanSquaredError'});
-  return model;
-}
-
-/********** Commander Model **********/
-function buildCommanderDQN() {
-  // input shape 5, output shape 4
-  const inp= tf.input({shape:[5]});
-  let x= tf.layers.dense({units:32, activation:'relu'}).apply(inp);
-  x= tf.layers.dense({units:16, activation:'relu'}).apply(x);
-  let out= tf.layers.dense({units:4, activation:'linear'}).apply(x);
-
-  let model= tf.model({inputs:inp, outputs:out});
-  model.compile({optimizer: tf.train.adam(0.0005), loss:'meanSquaredError'});
-  return model;
-}
-
-/********** Start **********/
+/*********************************************************
+   Start
+*********************************************************/
 initializeSimulation();
 requestAnimationFrame(updateSimulation);
 
-/*************************************************************
- * NEXT STEPS:
- * 1) Expand synergy logic to handle partial progress or more
- *    advanced knowledgeGraph references.
- * 2) Let Commander spawn different difficulty threats or
- *    advanced synergy tasks with multiple steps.
- * 3) Possibly incorporate advanced data augmentation or
- *    partial 'experience sharing' among Agents.
- * 4) Expand the day/night shading to a gradient. Possibly
- *    random weather events. Etc.
- *************************************************************/
+/*********************************************************
+   Additional Next Steps:
+   1. Use advanced GNN for synergy tasks references
+   2. Dynamic weather events, partial obs
+   3. Agents "chat" or "trade" synergy steps
+   4. Commander-later approach or large RL approach
+*********************************************************/
 </script>
-
 </body>
 </html>

@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Advanced Evolutionary Agent Simulation – Smart & Adaptive</title>
+  <style>
+    /* Basic page styling */
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #222;
+      color: #fefefe;
+      font-family: sans-serif;
+    }
+    /* Canvas fills the window */
+    #canvas {
+      display: block;
+    }
+    /* Logging panel (left) */
+    #log {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 300px;
+      max-height: 200px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.6);
+      padding: 8px;
+      font-size: 14px;
+      z-index: 1000;
+    }
+    /* Synergy scoreboard panel (right) */
+    #synergyPanel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 280px;
+      max-height: 250px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.6);
+      padding: 8px;
+      font-size: 14px;
+      text-align: right;
+      z-index: 1000;
+    }
+    /* Advanced Agent Controls Panel (bottom) */
+    #agentControls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      font-size: 14px;
+      z-index: 1000;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    #agentControls input[type="range"],
+    #agentControls input[type="number"] {
+      margin: 0 5px;
+    }
+    #agentControls button {
+      padding: 5px 10px;
+      background-color: #3498db;
+      border: none;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="log"></div>
+  <div id="synergyPanel"></div>
+  <div id="agentControls">
+    <button onclick="commander.trainExtra()">Train Commander</button>
+    <label>LR: <input type="number" id="lrInput" value="0.0005" step="0.0001" onchange="updateLR(this.value)"></label>
+    <label>MutRate: <input type="number" id="mutRateInput" value="0.01" step="0.001" onchange="updateMutRate(this.value)"></label>
+    <label>Decay: <input type="number" id="decayInput" value="0.999" step="0.001" onchange="updateDecay(this.value)"></label>
+    <span id="lossDisplay">Loss: N/A</span>
+  </div>
+  
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script>
+    /**********************************************************************
+     * Advanced Evolutionary Agent Simulation – Smart & Adaptive Commander
+     **********************************************************************/
+  
+    // Setup canvas and context
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  
+    // Global simulation variables
+    let agents = [], threats = [], foods = [], tasks = [], threatNests = [];
+    let commander;
+    let lastTimestamp = performance.now();
+    let fps = 0, stepTime = 0, timeOfDay = 8, generation = 0;
+  
+    // Simulation settings
+    const settings = {
+      threat: {
+        baseSpeed: 0.5,
+        aggressiveness: 1.0,
+        spawnInterval: 20000,
+      },
+      tasks: {
+        synergyRequired: 3,
+        megaTaskSynergyReq: 8
+      },
+      synergy: {
+        distanceThreshold: 50,
+        perNeighborGain: 0.01,
+        maxSynergyPerAgent: 5,
+        degradeFactor: 0.999
+      },
+      food: {
+        decayTime: 30000
+      },
+      tribes: 2
+    };
+  
+    /**************** Utility Functions ****************/
+    function logEvent(msg) {
+      const logDiv = document.getElementById("log");
+      const line = document.createElement("div");
+      line.textContent = msg;
+      logDiv.appendChild(line);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+  
+    function argmax(arr) {
+      let maxIndex = 0, maxValue = arr[0];
+      for(let i=1; i<arr.length; i++){
+        if(arr[i] > maxValue) { maxValue = arr[i]; maxIndex = i; }
+      }
+      return maxIndex;
+    }
+  
+    function keepInBounds(entity) {
+      if(entity.x < entity.size) entity.x = entity.size;
+      if(entity.y < entity.size) entity.y = entity.size;
+      if(entity.x > canvas.width - entity.size) entity.x = canvas.width - entity.size;
+      if(entity.y > canvas.height - entity.size) entity.y = canvas.height - entity.size;
+    }
+  
+    /**************** ENTITY CLASSES ****************/
+    class Entity {
+      constructor(x, y, size, color) {
+        this.x = x;
+        this.y = y;
+        this.size = size;
+        this.color = color;
+        this.alive = true;
+      }
+      draw(ctx) {
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  
+    class Threat extends Entity {
+      constructor(x, y) { super(x, y, 8, 'red'); }
+      move(timeOfDay) {
+        const speed = settings.threat.baseSpeed * settings.threat.aggressiveness * ((timeOfDay > 18 || timeOfDay < 6) ? 1.2 : 1);
+        this.x += (Math.random() - 0.5) * speed;
+        this.y += (Math.random() - 0.5) * speed;
+        keepInBounds(this);
+      }
+    }
+  
+    class ThreatNest extends Entity {
+      constructor(x, y) { super(x, y, 10, 'darkred'); this.lastSpawn = performance.now(); }
+      spawnThreatIfNeeded(globalSynergy) {
+        const now = performance.now();
+        if(now - this.lastSpawn > settings.threat.spawnInterval) {
+          if(globalSynergy > settings.tasks.synergyRequired * 1.5) {
+            threats.push(new Threat(this.x + (Math.random() - 0.5) * 50, this.y + (Math.random() - 0.5) * 50));
+            logEvent("Threat Nest spawned a new Threat!");
+          }
+          this.lastSpawn = now;
+        }
+      }
+    }
+  
+    class Food extends Entity {
+      constructor(x, y) { super(x, y, 5, 'green'); this.spawnTime = performance.now(); }
+      updateDecay() {
+        if(performance.now() - this.spawnTime > settings.food.decayTime)
+          this.alive = false;
+      }
+    }
+  
+    class Task extends Entity {
+      constructor(x, y, requiresSynergy = false, isMegaTask = false, tribeForMegaTask = null) {
+        super(x, y, 6, isMegaTask ? 'violet' : (requiresSynergy ? 'cyan' : 'yellow'));
+        this.requiresSynergy = requiresSynergy;
+        this.isMegaTask = isMegaTask;
+        this.tribeForMegaTask = tribeForMegaTask;
+      }
+    }
+  
+    class Agent extends Entity {
+      constructor(x, y, tribe) {
+        super(x, y, 7, tribe === 0 ? 'blue' : 'orange');
+        this.energy = 100;
+        this.synergy = 0;
+        this.tribe = tribe;
+        this.synergyBuff = 1.0;
+      }
+      move() {
+        this.x += (Math.random() - 0.5) * 2;
+        this.y += (Math.random() - 0.5) * 2;
+        keepInBounds(this);
+        this.synergy *= settings.synergy.degradeFactor;
+        this.energy -= 0.05;
+        if (this.energy <= 0) this.alive = false;
+      }
+      updateSynergy(agents) {
+        for (let other of agents) {
+          if (other !== this && other.alive && other.tribe === this.tribe) {
+            const dx = other.x - this.x, dy = other.y - this.y;
+            if (Math.sqrt(dx * dx + dy * dy) < settings.synergy.distanceThreshold)
+              this.synergy += settings.synergy.perNeighborGain * this.synergyBuff;
+          }
+        }
+        if (this.synergy > settings.synergy.maxSynergyPerAgent)
+          this.synergy = settings.synergy.maxSynergyPerAgent;
+      }
+      updateTarget() {
+        logEvent(`Agent (Tribe ${this.tribe}) updated target network!`);
+      }
+      mutate() {
+        this.synergyBuff *= (1 + (Math.random() - 0.5) * 0.05);
+      }
+    }
+  
+    /**************** SMART COMMANDER AGENT ****************/
+    class CommanderAgent {
+      constructor() {
+        this.stepCount = 0;
+        this.epsilon = 1.0;
+        this.exp = [];
+        this.learningRate = parseFloat(document.getElementById("lrInput").value);
+        this.mutationRate = parseFloat(document.getElementById("mutRateInput").value);
+        this.epsilonDecay = parseFloat(document.getElementById("decayInput").value);
+        this.model = this.buildCommanderDQN();
+        this.targetModel = this.buildCommanderDQN();
+        this.targetModel.setWeights(this.model.getWeights());
+        this.lossHistory = [];
+      }
+  
+      buildCommanderDQN() {
+        const model = tf.sequential({
+          layers: [
+            tf.layers.dense({ units: 64, inputShape: [5], activation: 'relu' }),
+            tf.layers.dropout({ rate: 0.2 }),
+            tf.layers.dense({ units: 32, activation: 'relu' }),
+            tf.layers.dropout({ rate: 0.2 }),
+            tf.layers.dense({ units: 16, activation: 'relu' }),
+            tf.layers.dense({ units: 6, activation: 'linear' })
+          ]
+        });
+        model.compile({ optimizer: tf.train.adam(this.learningRate), loss: 'meanSquaredError' });
+        return model;
+      }
+  
+      step(agents, threats, foods, tasks, timeOfDay) {
+        this.stepCount++;
+        const state = [
+          agents.length / 30,
+          tasks.length / 10,
+          settings.tasks.synergyRequired / 5,
+          timeOfDay / 24,
+          settings.threat.aggressiveness / 5
+        ];
+        let action;
+        if (Math.random() < this.epsilon) {
+          action = Math.floor(Math.random() * 6);
+        } else {
+          const stT = tf.tensor2d([state]);
+          const out = this.model.predict(stT);
+          const arr = out.dataSync();
+          out.dispose();
+          stT.dispose();
+          action = argmax(arr);
+        }
+        let reward = 0;
+        switch (action) {
+          case 0:
+            if (Math.random() < 0.3) { spawnMultiStepCommanderTask(); reward += 2; }
+            break;
+          case 1:
+            if (settings.tasks.synergyRequired > 1) { settings.tasks.synergyRequired--; reward += 2; logEvent("Commander lowered synergy requirement!"); }
+            break;
+          case 2:
+            settings.threat.aggressiveness += 0.05; logEvent("Increased threat aggressiveness!"); reward -= 1;
+            break;
+          case 3:
+            agents.forEach(a => a.updateTarget()); reward += 3; logEvent("Forced agents to update target network!");
+            break;
+          case 4:
+            const randTribe = Math.floor(Math.random() * settings.tribes); spawnMegaTask(randTribe); reward += 3;
+            break;
+          case 5:
+            const buffTribe = Math.floor(Math.random() * settings.tribes);
+            agents.forEach(a => { if (a.tribe === buffTribe) a.synergyBuff *= 1.2; });
+            reward += 2; logEvent(`Buffed synergy for Tribe ${buffTribe}!`);
+            break;
+        }
+        this.exp.push({ state, action, reward, nextState: [...state], done: false });
+        if (this.exp.length > 64) this.learn();
+        if (this.epsilon > 0.05) this.epsilon *= this.epsilonDecay;
+        if (Math.random() < this.mutationRate) {
+          agents.forEach(a => a.mutate());
+          logEvent("Agents mutated slightly.");
+        }
+        return state;
+      }
+  
+      learn() {
+        const batchSize = 64;
+        const batch = this.exp.slice(-batchSize);
+        const states = batch.map(e => e.state);
+        const actions = batch.map(e => e.action);
+        const rewards = batch.map(e => e.reward);
+        const nextStates = batch.map(e => e.nextState);
+        const sT = tf.tensor2d(states);
+        const nsT = tf.tensor2d(nextStates);
+        const currQ = this.model.predict(sT);
+        const nextQ = this.targetModel.predict(nsT);
+        const currData = currQ.arraySync();
+        const nextData = nextQ.arraySync();
+        for (let i = 0; i < batch.length; i++) {
+          const maxNext = Math.max(...nextData[i]);
+          currData[i][actions[i]] = rewards[i] + 0.99 * maxNext;
+        }
+        const target = tf.tensor2d(currData);
+        this.model.fit(sT, target, { epochs: 1, verbose: 0 }).then(info => {
+          const loss = info.history.loss[0];
+          this.lossHistory.push(loss);
+          document.getElementById("lossDisplay").textContent = "Loss: " + loss.toFixed(4);
+          tf.dispose([sT, nsT, currQ, nextQ, target]);
+          if (this.stepCount % 100 === 0) {
+            const tau = 0.1;
+            const weights = this.model.getWeights();
+            const targetWeights = this.targetModel.getWeights();
+            const updated = weights.map((w, i) => tf.add(tf.mul(w, tau), tf.mul(targetWeights[i], 1 - tau)));
+            this.targetModel.setWeights(updated);
+            updated.forEach(t => t.dispose());
+          }
+        });
+      }
+  
+      trainExtra() {
+        for (let i = 0; i < 100; i++) {
+          const randAudio = Math.random();
+          this.step(agents, threats, foods, tasks, timeOfDay);
+        }
+        logEvent("Commander trained extra for 100 steps.");
+      }
+    }
+  
+    /**************** SPAWN FUNCTIONS ****************/
+    function spawnMultiStepCommanderTask() {
+      tasks.push(new Task(Math.random() * canvas.width, Math.random() * canvas.height, true, false, null));
+      logEvent("Multi-step Commander task spawned!");
+    }
+    function spawnMegaTask(tribe) {
+      tasks.push(new Task(Math.random() * canvas.width, Math.random() * canvas.height, true, true, tribe));
+      logEvent(`MegaTask spawned for Tribe ${tribe}!`);
+    }
+  
+    /**************** INITIALIZE SIMULATION ****************/
+    function initializeSimulation() {
+      agents = []; threats = []; foods = []; tasks = []; threatNests = [];
+      generation = 0; timeOfDay = 8;
+      commander = new CommanderAgent();
+      const totalAgents = 12;
+      for (let i = 0; i < totalAgents; i++) {
+        const tribe = i % settings.tribes;
+        agents.push(new Agent(Math.random() * canvas.width, Math.random() * canvas.height, tribe));
+      }
+      for (let i = 0; i < 3; i++) {
+        threats.push(new Threat(Math.random() * canvas.width, Math.random() * canvas.height));
+      }
+      for (let i = 0; i < 5; i++) {
+        foods.push(new Food(Math.random() * canvas.width, Math.random() * canvas.height));
+      }
+      tasks.push(new Task(Math.random() * canvas.width, Math.random() * canvas.height, true, false, null));
+      for (let i = 0; i < 2; i++) {
+        threatNests.push(new ThreatNest(Math.random() * canvas.width, Math.random() * canvas.height));
+      }
+    }
+  
+    function updateSimulation(timestamp) {
+      const dt = timestamp - lastTimestamp;
+      lastTimestamp = timestamp;
+      fps = (1000 / dt).toFixed(1);
+      stepTime += dt / 1000;
+      if (stepTime > 1) { timeOfDay += 0.05; if (timeOfDay >= 24) timeOfDay = 0; stepTime = 0; }
+      commander.step(agents, threats, foods, tasks, timeOfDay);
+      agents.forEach(agent => { if (agent.alive) { agent.updateSynergy(agents); agent.move(); } });
+      threats.forEach(t => t.move(timeOfDay));
+      foods.forEach(f => f.updateDecay());
+      agents = agents.filter(a => a.alive);
+      foods = foods.filter(f => f.alive);
+      completeSynergyTasksIfReady(agents);
+      const globalSynergy = agents.reduce((sum, ag) => sum + ag.synergy, 0);
+      threatNests.forEach(nest => nest.spawnThreatIfNeeded(globalSynergy));
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      threatNests.forEach(nest => nest.draw(ctx));
+      threats.forEach(t => t.draw(ctx));
+      foods.forEach(f => f.draw(ctx));
+      tasks.forEach(task => task.draw(ctx));
+      agents.forEach(a => a.draw(ctx));
+      updateSynergyPanel(agents);
+      requestAnimationFrame(updateSimulation);
+    }
+  
+    function completeSynergyTasksIfReady(agentArray) {
+      const globalSynergy = agentArray.reduce((sum, ag) => sum + ag.synergy, 0);
+      const synergyByTribe = new Array(settings.tribes).fill(0);
+      agentArray.forEach(ag => { synergyByTribe[ag.tribe] += ag.synergy; });
+      tasks = tasks.filter(task => {
+        if (!task.requiresSynergy) return true;
+        if (!task.isMegaTask) {
+          if (globalSynergy >= settings.tasks.synergyRequired) { logEvent("Synergy task completed!"); return false; }
+          return true;
+        } else {
+          const req = settings.tasks.megaTaskSynergyReq;
+          const tribe = task.tribeForMegaTask;
+          if (tribe !== null) {
+            if (synergyByTribe[tribe] >= req) { logEvent(`MegaTask for Tribe ${tribe} completed!`); agentArray.forEach(a => { if(a.tribe === tribe) a.synergy = Math.min(a.synergy + 1, settings.synergy.maxSynergyPerAgent); }); return false; }
+            return true;
+          } else {
+            if (globalSynergy >= req) { logEvent("Global MegaTask completed!"); return false; }
+            return true;
+          }
+        }
+      });
+    }
+  
+    function updateSynergyPanel(agentArray) {
+      const synergyPanel = document.getElementById("synergyPanel");
+      synergyPanel.innerHTML = "";
+      const synergyByTribe = new Array(settings.tribes).fill(0);
+      agentArray.forEach(a => { synergyByTribe[a.tribe] += a.synergy; });
+      const globalSynergy = synergyByTribe.reduce((sum, val) => sum + val, 0);
+      const globalLine = document.createElement("div");
+      globalLine.textContent = `Global Synergy: ${globalSynergy.toFixed(2)}`;
+      synergyPanel.appendChild(globalLine);
+      synergyByTribe.forEach((val, tribe) => {
+        const line = document.createElement("div");
+        line.textContent = `Tribe ${tribe} Synergy: ${val.toFixed(2)}`;
+        synergyPanel.appendChild(line);
+      });
+      const timeLine = document.createElement("div");
+      timeLine.textContent = `Time: ${timeOfDay.toFixed(2)}h (FPS: ${fps})`;
+      synergyPanel.appendChild(timeLine);
+    }
+  
+    /********* Start Simulation *********/
+    initializeSimulation();
+    requestAnimationFrame(updateSimulation);
+  
+    /********* Commander Agent Controls *********/
+    function updateLR(val) { commander.learningRate = parseFloat(val); commander.model.optimizer.learningRate = parseFloat(val); }
+    function updateMutRate(val) { commander.mutationRate = parseFloat(val); }
+    function updateDecay(val) { commander.epsilonDecay = parseFloat(val); }
+  
+    /********* End Commander Controls *********/
+  </script>
+</body>
+</html>

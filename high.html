@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>Advanced Evolutionary Agent Simulation – Smart & Adaptive Plus</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Chart.js for performance loss graph -->
+  <!-- Chart.js for live loss graph -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
@@ -22,7 +22,7 @@
     #canvas {
       display: block;
     }
-    /* Logging panel (left) */
+    /* Logging panel (left side) */
     #log {
       position: absolute;
       top: 0;
@@ -35,7 +35,7 @@
       font-size: 14px;
       z-index: 1000;
     }
-    /* Synergy/info panel (right) */
+    /* Synergy/info panel (right side) */
     #synergyPanel {
       position: absolute;
       top: 0;
@@ -49,7 +49,7 @@
       text-align: right;
       z-index: 1000;
     }
-    /* Commander/Agent Controls (bottom) */
+    /* Commander/Agent Controls Panel (bottom) */
     #agentControls {
       position: absolute;
       bottom: 0;
@@ -121,17 +121,12 @@
     (function(){
       /**********************************************************************
        * Advanced Evolutionary Agent Simulation – Smart & Adaptive Plus
-       * 
-       * New innovations:
-       * - Dynamic background transitioning between day and night.
-       * - Agent tooltip on hover displaying energy, synergy, and tribe.
-       * - Cooperation function: Agents close together share synergy.
-       * - Commander auto-adjusts learning rate based on training loss.
-       * - "Reset Simulation" button to restart the simulation.
-       * - Live loss chart showing training loss over time.
+       * Enhanced Agent Architecture: Agents now use steering behaviors to
+       * seek friendly agents when synergy is low, avoid threats, and seek food.
+       * CommanderAgent auto-tunes its learning rate based on training loss.
        **********************************************************************/
       
-      // Setup canvas
+      // Setup canvas and context
       const canvas = document.getElementById("canvas");
       const ctx = canvas.getContext("2d");
       canvas.width = window.innerWidth;
@@ -143,7 +138,7 @@
       let lastTimestamp = performance.now();
       let fps = 0, stepTime = 0, timeOfDay = 8, generation = 0;
       
-      // Add a cooperation bonus setting
+      // Cooperation bonus for agents sharing synergy
       const cooperationBonus = 0.005;
       
       // Simulation settings
@@ -193,13 +188,13 @@
         if(entity.y > canvas.height - entity.size) entity.y = canvas.height - entity.size;
       }
       
-      // Cooperation: if two agents are very close, average their synergy plus a bonus.
+      // Agents share synergy when very close (cooperation)
       function shareCooperation(agents) {
         for (let i = 0; i < agents.length; i++) {
-          for (let j = i+1; j < agents.length; j++) {
+          for (let j = i + 1; j < agents.length; j++) {
             let a = agents[i], b = agents[j];
             let dx = a.x - b.x, dy = a.y - b.y;
-            if (Math.sqrt(dx*dx + dy*dy) < settings.synergy.distanceThreshold / 2) {
+            if (Math.hypot(dx, dy) < settings.synergy.distanceThreshold / 2) {
               let avg = ((a.synergy + b.synergy) / 2) + cooperationBonus;
               a.synergy = avg;
               b.synergy = avg;
@@ -224,7 +219,8 @@
       class Threat extends Entity {
         constructor(x, y) { super(x, y, 8, 'red'); }
         move(timeOfDay) {
-          const speed = settings.threat.baseSpeed * settings.threat.aggressiveness * ((timeOfDay > 18 || timeOfDay < 6) ? 1.2 : 1);
+          const speed = settings.threat.baseSpeed * settings.threat.aggressiveness *
+                        ((timeOfDay > 18 || timeOfDay < 6) ? 1.2 : 1);
           this.x += (Math.random() - 0.5) * speed;
           this.y += (Math.random() - 0.5) * speed;
           keepInBounds(this);
@@ -247,7 +243,10 @@
       
       class Food extends Entity {
         constructor(x, y) { super(x, y, 5, 'green'); this.spawnTime = performance.now(); }
-        updateDecay() { if(performance.now() - this.spawnTime > settings.food.decayTime) this.alive = false; }
+        updateDecay() {
+          if(performance.now() - this.spawnTime > settings.food.decayTime)
+            this.alive = false;
+        }
       }
       
       class Task extends Entity {
@@ -259,6 +258,7 @@
         }
       }
       
+      // Basic Agent class is extended below by AdvancedAgent
       class Agent extends Entity {
         constructor(x, y, tribe) {
           super(x, y, 7, tribe === 0 ? 'blue' : 'orange');
@@ -267,6 +267,7 @@
           this.tribe = tribe;
           this.synergyBuff = 1.0;
         }
+        // Default move: random (to be overridden)
         move() {
           this.x += (Math.random() - 0.5) * 2;
           this.y += (Math.random() - 0.5) * 2;
@@ -279,7 +280,7 @@
           for(let other of agents) {
             if(other !== this && other.alive && other.tribe === this.tribe) {
               const dx = other.x - this.x, dy = other.y - this.y;
-              if(Math.sqrt(dx*dx + dy*dy) < settings.synergy.distanceThreshold)
+              if(Math.hypot(dx, dy) < settings.synergy.distanceThreshold)
                 this.synergy += settings.synergy.perNeighborGain * this.synergyBuff;
             }
           }
@@ -288,6 +289,76 @@
         }
         updateTarget() { logEvent(`Agent (Tribe ${this.tribe}) updated target network!`); }
         mutate() { this.synergyBuff *= (1 + (Math.random()-0.5)*0.05); }
+      }
+      
+      // AdvancedAgent extends Agent with a more sophisticated steering architecture.
+      class AdvancedAgent extends Agent {
+        constructor(x, y, tribe) {
+          super(x, y, tribe);
+        }
+        computeSteering(agents, foods, threats) {
+          let steer = { x: 0, y: 0 };
+          // Cohesion: move toward average position of friendly neighbors within a perception radius.
+          let neighborCount = 0, avgX = 0, avgY = 0;
+          for(let other of agents) {
+            if(other !== this && other.alive && other.tribe === this.tribe) {
+              let d = Math.hypot(other.x - this.x, other.y - this.y);
+              if(d < 100) {
+                avgX += other.x;
+                avgY += other.y;
+                neighborCount++;
+              }
+            }
+          }
+          if(neighborCount > 0) {
+            avgX /= neighborCount;
+            avgY /= neighborCount;
+            steer.x += (avgX - this.x) * 0.05;
+            steer.y += (avgY - this.y) * 0.05;
+          }
+          // Separation: move away from agents that are too close.
+          for(let other of agents) {
+            if(other !== this && other.alive && other.tribe === this.tribe) {
+              let d = Math.hypot(other.x - this.x, other.y - this.y);
+              if(d > 0 && d < 30) {
+                steer.x -= (other.x - this.x) * 0.1;
+                steer.y -= (other.y - this.y) * 0.1;
+              }
+            }
+          }
+          // Threat avoidance: move away from nearby threats.
+          for(let threat of threats) {
+            let d = Math.hypot(threat.x - this.x, threat.y - this.y);
+            if(d < 80) {
+              steer.x -= (threat.x - this.x) * 0.2;
+              steer.y -= (threat.y - this.y) * 0.2;
+            }
+          }
+          // Food seeking: if energy is low, steer toward the closest food.
+          if(this.energy < 50 && foods.length > 0) {
+            let closestFood = null, minDist = Infinity;
+            for(let food of foods) {
+              let d = Math.hypot(food.x - this.x, food.y - this.y);
+              if(d < minDist) { minDist = d; closestFood = food; }
+            }
+            if(closestFood) {
+              steer.x += (closestFood.x - this.x) * 0.05;
+              steer.y += (closestFood.y - this.y) * 0.05;
+            }
+          }
+          return steer;
+        }
+        move(agents, foods, threats) {
+          // Compute steering vector from multiple influences.
+          let steer = this.computeSteering(agents, foods, threats);
+          // Apply steering vector along with a small random noise.
+          this.x += steer.x + (Math.random() - 0.5) * 2;
+          this.y += steer.y + (Math.random() - 0.5) * 2;
+          keepInBounds(this);
+          this.synergy *= settings.synergy.degradeFactor;
+          this.energy -= 0.05;
+          if(this.energy <= 0) this.alive = false;
+        }
       }
       
       /**************** SMART COMMANDER AGENT ****************/
@@ -395,13 +466,13 @@
             this.lossData.push(loss);
             document.getElementById("lossDisplay").textContent = "Loss: " + loss.toFixed(4);
             updateLossChart(this.lossData);
-            // Auto-adjust learning rate based on loss (if loss high, lower LR, else raise slightly)
+            // Auto-adjust learning rate based on loss
             if(loss > 0.1) {
               this.learningRate *= 0.98;
             } else {
               this.learningRate *= 1.02;
             }
-            commander.model.optimizer.learningRate = this.learningRate;
+            this.model.optimizer.learningRate = this.learningRate;
             tf.dispose([sT, nsT, currQ, nextQ, target]);
             if(this.stepCount % 100 === 0) {
               const tau = 0.1;
@@ -438,9 +509,10 @@
         generation = 0; timeOfDay = 8;
         commander = new CommanderAgent();
         const totalAgents = 12;
+        // Use AdvancedAgent instead of basic Agent for improved architecture
         for(let i = 0; i < totalAgents; i++){
           const tribe = i % settings.tribes;
-          agents.push(new Agent(Math.random() * canvas.width, Math.random() * canvas.height, tribe));
+          agents.push(new AdvancedAgent(Math.random() * canvas.width, Math.random() * canvas.height, tribe));
         }
         for(let i = 0; i < 3; i++){
           threats.push(new Threat(Math.random() * canvas.width, Math.random() * canvas.height));
@@ -472,8 +544,8 @@
         canvas.style.backgroundColor = `rgb(${bgR},${bgG},${bgB})`;
   
         commander.step(agents, threats, foods, tasks, timeOfDay);
-        agents.forEach(agent => { if(agent.alive){ agent.updateSynergy(agents); agent.move(); } });
-        // Cooperation: allow agents that are very close to share synergy
+        agents.forEach(agent => { if(agent.alive){ agent.updateSynergy(agents); agent.move(agents, foods, threats); } });
+        // Agents also cooperate by sharing synergy
         shareCooperation(agents);
         threats.forEach(t => t.move(timeOfDay));
         foods.forEach(f => f.updateDecay());
@@ -507,7 +579,11 @@
             const req = settings.tasks.megaTaskSynergyReq;
             const tribe = task.tribeForMegaTask;
             if(tribe !== null) {
-              if(synergyByTribe[tribe] >= req) { logEvent(`MegaTask for Tribe ${tribe} completed!`); agentArray.forEach(a => { if(a.tribe===tribe) a.synergy = Math.min(a.synergy+1, settings.synergy.maxSynergyPerAgent); }); return false; }
+              if(synergyByTribe[tribe] >= req) { 
+                logEvent(`MegaTask for Tribe ${tribe} completed!`);
+                agentArray.forEach(a => { if(a.tribe===tribe) a.synergy = Math.min(a.synergy+1, settings.synergy.maxSynergyPerAgent); });
+                return false; 
+              }
               return true;
             } else {
               if(globalSynergy >= req) { logEvent("Global MegaTask completed!"); return false; }
@@ -545,7 +621,7 @@
         let found = false;
         for(let agent of agents) {
           const dx = e.clientX - agent.x, dy = e.clientY - agent.y;
-          if(Math.sqrt(dx*dx + dy*dy) < agent.size + 5) {
+          if(Math.hypot(dx, dy) < agent.size + 5) {
             agentTooltip.style.display = "block";
             agentTooltip.style.left = (e.clientX + 10) + "px";
             agentTooltip.style.top = (e.clientY + 10) + "px";
@@ -608,7 +684,7 @@
       initializeSimulation();
       requestAnimationFrame(updateSimulation);
       
-      /********* End of Simulation Code *********/
+      /********* End Simulation Code *********/
     })();
   </script>
 </body>
